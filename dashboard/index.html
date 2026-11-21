@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar Senja v4 — fitted launch-value board</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Token Radar Senja <span class="badge">v4</span></h1>
+    <p class="sub">A fitted launch-value board: what a pre-token protocol's token would be worth — and how to farm it.</p>
+  </div>
+  <div class="head-right" id="headRight"></div>
+</header>
+
+<section class="kpis" id="kpis"></section>
+
+<section class="method" id="method">
+  <h2>How a row is priced</h2>
+  <p><b>Universe.</b> A protocol counts as pre-token only when it records no token: its <code>symbol</code> <i>and</i> its market cap are both null. That is 342 of 758 protocols. The 416 that carry a symbol already have a token — they are the priced comps and the set-aside, never the board. No board row records a token; the self-test below counts it.</p>
+  <p id="mValue"><b>Value if it launches.</b> <span class="dim">Fitted at runtime — see the evidence section.</span></p>
+  <p id="mOdds"><b>Token odds.</b> <span class="dim">Fitted at runtime — see the evidence section.</span></p>
+  <p><b>Farm math.</b> A launch is assumed to pay 10% of the implied value to farmers; the farming pool is 5% of TVL, so a deposit <i>D</i> takes <i>D / (5% × TVL)</i> of it. Net is the <i>band-low</i> slice minus gas ($15 setup + $10/week + $15 claim, 30-day hold, 150 minutes of work). FARM needs a band-low net of $50 on $1,500; MARGINAL clears zero on $5,000; the rest is SKIP. Deposit, horizon, pool share and drop share below recompute every net live.</p>
+</section>
+
+<section class="farmnext">
+  <h2>Farm next — best dollars per hour <span class="dim" id="farmNextNote"></span></h2>
+  <div class="cards" id="farmNext"></div>
+</section>
+
+<section class="census">
+  <h2>Where all 758 protocols went <span class="dim">every protocol in exactly one group</span></h2>
+  <div class="bar" id="censusBar"></div>
+  <div class="legend" id="censusLegend"></div>
+</section>
+
+<section class="controls">
+  <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search">
+  <select id="cat" aria-label="Category"><option value="">All categories</option></select>
+  <select id="chain" aria-label="Chain"><option value="">All chains</option></select>
+  <select id="sort" aria-label="Sort">
+    <option value="implied">Sort: implied value</option>
+    <option value="tvl">Sort: TVL</option>
+    <option value="odds">Sort: token odds</option>
+    <option value="net">Sort: net $/hour</option>
+    <option value="age">Sort: no-token age</option>
+  </select>
+  <label>Deposit <select id="deposit"><option>1000</option><option selected>1500</option><option>5000</option><option>10000</option></select></label>
+  <label>Horizon <select id="horizon"><option>90</option><option selected>180</option><option>365</option></select></label>
+  <label>Pool share <input id="pool" type="range" min="1" max="20" value="5"> <span id="poolVal">5%</span></label>
+  <label>Drop share <input id="drop" type="range" min="5" max="20" value="10"> <span id="dropVal">10%</span></label>
+  <div class="tabs" id="tabs">
+    <button data-tab="ALL" class="on">All</button>
+    <button data-tab="FARM">FARM</button>
+    <button data-tab="MARGINAL">MARGINAL</button>
+    <button data-tab="SKIP">SKIP</button>
+    <button data-tab="WATCH">Watchlist</button>
+  </div>
+  <button id="csv">Export CSV</button>
+  <button id="json">Export JSON</button>
+</section>
+<p class="statusline" id="statusline"></p>
+
+<main>
+  <table id="board">
+    <thead><tr>
+      <th data-k="rank">#</th><th data-k="name">Protocol</th><th data-k="category">Category</th><th data-k="chain">Chain</th>
+      <th data-k="tvl" class="num">TVL</th><th data-k="change_7d" class="num">7D</th><th data-k="age" class="num">Age</th>
+      <th data-k="fitted" class="num">Fitted</th><th data-k="odds" class="num">Odds</th><th data-k="implied" class="num">Implied</th>
+      <th class="num">Band P25–P75</th><th data-k="net" class="num">Net</th><th data-k="perhour" class="num">$/h</th>
+      <th data-k="verdict">Verdict</th><th>Range</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<section class="detail" id="detail" hidden></section>
+
+<section class="evidence" id="evidence">
+  <h2>Out-of-sample evidence — the numbers this board stands on</h2>
+  <div id="evValue"></div>
+  <div id="evOdds"></div>
+  <div id="evRange"></div>
+  <div id="evCure"></div>
+</section>
+
+<section class="selftest" id="selftest"></section>
+
+<footer>
+  <p>Token Radar Senja v4 · fitted at runtime from the sealed snapshot (as of <span id="asOf"></span>) · implied value is this entry's own claim, never make.fun's · a protocol is said to <i>record</i> no token, never to <i>have</i> none.</p>
+</footer>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
