@@ -188,10 +188,11 @@ function main(): void {
   const censusTotal = censusGroups.reduce((s, g) => s + g.count, 0);
 
   // --- value model ----------------------------------------------------
-  const curated = priced.filter((p) => {
-    const r = p.mcap_usd! / p.tvl_usd;
-    return r >= 0.02 && r <= 2;
-  });
+  // No ratio curation: every priced peer stays in. An earlier cut (ratio in
+  // [0.02, 2], 94 of 128) steepened the slope to 0.79 and put Steakhouse's
+  // fitted value at $251M; the uncut fit is the one that wins both held-out
+  // tests on the full priced set (see the evidence section).
+  const curated = priced;
   const pricedDates = priced
     .filter((p) => p.listed_at)
     .map((p) => p.listed_at!)
@@ -296,10 +297,12 @@ function main(): void {
     const slice = sliceUsd(bandLow, p.tvl_usd, FARM.deposit, FARM.dropShare, FARM.poolShare);
     const net = slice - gas;
     const slice1k = sliceUsd(bandLow, p.tvl_usd, 1000, FARM.dropShare, FARM.poolShare);
-    const slice5k = sliceUsd(bandLow, p.tvl_usd, 5000, FARM.dropShare, FARM.poolShare);
-    const verdict = net >= 50 ? 'FARM' : slice5k - gas >= 0 ? 'MARGINAL' : 'SKIP';
+    // FARM needs a band-low net of $150 on $1,500 — a 10% after-fee return in
+    // the pessimistic case, $60 an hour for the 150 minutes of work.
+    // MARGINAL breaks even at $1,500; SKIP loses money at $1,500.
+    const verdict = net >= 150 ? 'FARM' : net >= 0 ? 'MARGINAL' : 'SKIP';
     const slicePerDollar = (bandLow * FARM.dropShare) / (FARM.poolShare * p.tvl_usd);
-    const minDeposit = Math.ceil((50 + gas) / slicePerDollar);
+    const minDeposit = Math.ceil((150 + gas) / slicePerDollar);
     const breakEvenDays = slice <= FARM.gasSetup + FARM.gasClaim ? null : Math.ceil(((slice - FARM.gasSetup - FARM.gasClaim) / FARM.gasWeekly) * 7);
     const a = ageYears(p);
     return {
@@ -439,6 +442,8 @@ function main(): void {
       })),
       frozenBeta: frozen.beta.map((b) => Math.round(b * 10000) / 10000),
       frozenTerms: terms,
+      peerCount: curated.length,
+      pricedCount: priced.length,
       bandMult: {
         q10: Math.round(bandMult.q10 * 1000) / 1000,
         q25: Math.round(bandMult.q25 * 1000) / 1000,

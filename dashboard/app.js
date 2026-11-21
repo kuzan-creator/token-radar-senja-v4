@@ -23,10 +23,11 @@
   function econ(r, dep, pool, drop) {
     var slice = (r.band_low_usd * drop) / (pool * r.tvl_usd) * dep;
     var net = slice - GAS;
-    var slice5k = (r.band_low_usd * drop) / (pool * r.tvl_usd) * 5000;
-    var verdict = net >= 50 ? 'FARM' : (slice5k - GAS >= 0 ? 'MARGINAL' : 'SKIP');
+    // FARM needs a band-low net of $150 on $1,500 (10% after fees, $60/hour);
+    // MARGINAL breaks even at $1,500; SKIP loses money at $1,500.
+    var verdict = net >= 150 ? 'FARM' : (net >= 0 ? 'MARGINAL' : 'SKIP');
     var perDollar = (r.band_low_usd * drop) / (pool * r.tvl_usd);
-    var minDep = Math.ceil((50 + GAS) / perDollar);
+    var minDep = Math.ceil((150 + GAS) / perDollar);
     var be = slice <= M.farm.gasSetup + M.farm.gasClaim ? null : Math.ceil(((slice - M.farm.gasSetup - M.farm.gasClaim) / M.farm.gasWeekly) * 7);
     return { slice: slice, net: net, perHour: net / WORK_H, verdict: verdict, minDep: minDep, be: be, slice1k: (r.band_low_usd * drop) / (pool * r.tvl_usd) * 1000 };
   }
@@ -42,7 +43,7 @@
     ['<b>' + fmt(M.totalImpliedUsd) + '</b>', 'total implied value, ' + M.rows + ' rows'],
     ['<b>R² ' + fv.r2.toFixed(3) + '</b>', 'value fit · LOO ×' + fv.loo.toFixed(2) + ' · walk-fwd ×' + fv.wf.toFixed(2)],
     ['<b>Brier ' + E.odds.brier.toFixed(3) + '</b>', 'token odds · base rate ' + E.odds.constantBrier.toFixed(3) + ' · walk-fwd ' + E.odds.wfBrier.toFixed(3)],
-    ['<b>FARM ' + M.verdicts.FARM + '</b>', 'MARGINAL ' + M.verdicts.MARGINAL + ' · SKIP ' + M.verdicts.SKIP + ' · at $50 band-low net on $1,500'],
+    ['<b>FARM ' + M.verdicts.FARM + '</b>', 'MARGINAL ' + M.verdicts.MARGINAL + ' · SKIP ' + M.verdicts.SKIP + ' · at $150 band-low net on $1,500 (10% after fees)'],
     ['<b>P25–P75 ' + E.rangeHonesty.p25_75.toFixed(2) + '</b>', 'range honesty · P10–P90 ' + E.rangeHonesty.p10_90.toFixed(2) + ' (stated 0.80)']
   ].map(function (k) { return '<div class="kpi">' + k[0] + '<span>' + k[1] + '</span></div>'; }).join('');
 
@@ -51,7 +52,7 @@
   $('mValue').innerHTML = '<b>Value if it launches.</b> <code>log(market cap) = ' + b[0].toFixed(2) + ' + ' + b[1].toFixed(2) + ' · log(TVL)' +
     (b.length > 2 ? ' + ' + b[2].toFixed(2) + ' · (log TVL − 20)²' : '') +
     (b.length > 3 ? ' − ' + Math.abs(b[3]).toFixed(2) + ' · age' : '') +
-    '</code>, fitted on the 94 priced comps whose market-cap/TVL sits in [0.02, 2]. Each term was kept only because it lowered the held-out miss in <i>both</i> leave-one-out and a walk-forward split — the full term table is in the evidence section.';
+    '</code>, fitted on all ' + E.peerCount + ' priced comps — every protocol with a market cap over $0; no peer is cut for a low or high market-cap/TVL ratio. Each term was kept only because it lowered the held-out miss in <i>both</i> leave-one-out and a walk-forward split — the full term table is in the evidence section.';
   $('mOdds').innerHTML = '<b>Token odds.</b> Logistic on all 758 protocols, outcome "records a token" (base rate ' + (E.odds.base * 100).toFixed(1) + '%): log TVL, no-token age, 7-day growth, log chain count. Brier ' + E.odds.brier.toFixed(3) + ' against a ' + E.odds.constantBrier.toFixed(3) + ' constant, walk-forward Brier ' + E.odds.wfBrier.toFixed(3) + ' (' + E.odds.wfAcc.toFixed(2) + ' called right). Implied value = fitted value × odds.';
 
   // --- farm-next strip (live) ------------------------------------------
@@ -149,17 +150,23 @@
     if (!r) return;
     var e = econ(r, S.dep, S.pool, S.drop);
     var lt = Math.log(r.tvl_usd);
-    var age = r.age_years === null ? 1.85 : r.age_years;
-    // Refit without the age term, live in the page, from the embedded comps.
+    // Refit WITH the age term, live in the page, from the embedded comps.
+    // The frozen model has no age term (it lost the leave-one-out test), so
+    // this shows what the rejected term would do to this row. Null ages are
+    // filled with the median age of the embedded comps.
     var refit = null;
+    var age = r.age_years;
     try {
+      var ages = D.comps.map(function (c) { return c.age; }).filter(function (a) { return a !== null; }).sort(function (a, b) { return a - b; });
+      var medAge = ages[Math.floor(ages.length / 2)];
+      if (age === null) age = medAge;
       var X = [], Y = [];
-      D.comps.forEach(function (c) { X.push([1, c.lt, Math.pow(c.lt - 20, 2)]); Y.push(c.lm); });
-      var k = 3, XtX = [], XtY = [0, 0, 0];
-      for (var i = 0; i < k; i++) { XtX.push([0, 0, 0]); for (var j = 0; j < k; j++) { var s = 0; for (var t = 0; t < X.length; t++) s += X[t][i] * X[t][j]; XtX[i][j] = s; } }
+      D.comps.forEach(function (c) { X.push([1, c.lt, Math.pow(c.lt - 20, 2), Math.min(c.age === null ? medAge : c.age, 6)]); Y.push(c.lm); });
+      var k = 4, XtX = [], XtY = [0, 0, 0, 0];
+      for (var i = 0; i < k; i++) { XtX.push([0, 0, 0, 0]); for (var j = 0; j < k; j++) { var s = 0; for (var t = 0; t < X.length; t++) s += X[t][i] * X[t][j]; XtX[i][j] = s; } }
       for (var t2 = 0; t2 < X.length; t2++) for (var j2 = 0; j2 < k; j2++) XtY[j2] += X[t2][j2] * Y[t2];
       var beta = solve(XtX, XtY);
-      refit = Math.exp(beta[0] + beta[1] * lt + beta[2] * Math.pow(lt - 20, 2));
+      refit = Math.exp(beta[0] + beta[1] * lt + beta[2] * Math.pow(lt - 20, 2) + beta[3] * Math.min(age, 6));
     } catch (err) { refit = null; }
     var near = (D.compRows || []).map(function (c) { return { c: c, d: Math.abs(Math.log(c.tvl) - lt) }; })
       .sort(function (a, b) { return a.d - b.d; }).slice(0, 3);
@@ -178,24 +185,24 @@
       '<div class="tile"><b>$' + commas(e.slice1k) + '</b><span>$1,000 slice: the same farm at $1,000</span></div>' +
       '<div class="tile"><b>$' + commas(e.minDep) + '</b><span>minimum deposit to FARM · break-even ' + (e.be === null ? 'past horizon' : e.be + ' days') + '</span></div>' +
       '</div>' +
-      '<p>Verdict: <b class="v-' + e.verdict + '">' + e.verdict + '</b> — FARM needs a band-low net of $50 on $' + commas(S.dep) + '; MARGINAL needs a $5,000 deposit to clear zero; SKIP clears neither.</p>' +
+      '<p>Verdict: <b class="v-' + e.verdict + '">' + e.verdict + '</b> — FARM needs a band-low net of $150 on $' + commas(S.dep) + ' (a 10% after-fee return in the band-low case, $60 an hour for the work); MARGINAL breaks even at $' + commas(S.dep) + '; SKIP loses money at $' + commas(S.dep) + '.</p>' +
       '<p><b>Why this odds:</b> TVL ' + fmt(r.tvl_usd) + ' · age ' + ageFmt(r.age_years) + ' · growth ' + chg(r.change_7d) + ' · ' + (r.chains || []).length + ' chains · fitted/TVL ' + (r.fitted_mcap_usd / r.tvl_usd).toFixed(3) + ' (diagnostic only, never multiplied in)</p>' +
       '<p><b>Nearest priced comps (by TVL):</b> ' + near.map(function (n) { return n.c.slug + ': TVL ' + fmt(n.c.tvl) + ' → real cap ' + fmt(n.c.mcap) + ' (ratio ' + (n.c.mcap / n.c.tvl).toFixed(2) + ')'; }).join(' · ') + '</p>' +
-      (refit !== null ? '<p><button id="refitBtn">Refit without the age term</button> <span id="refitOut" class="dim">Refitting live from the 94 comps embedded in this page…</span></p>' : '') +
+      (refit !== null ? '<p><button id="refitBtn">Refit with the age term</button> <span id="refitOut" class="dim">Refitting live from the ' + D.comps.length + ' comps embedded in this page…</span></p>' : '') +
       '<h3>Farm plan — $' + commas(S.dep) + ' deposit, ' + S.horizon + '-day horizon</h3><ol>' +
       r.farm_steps.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>';
     $('dClose').onclick = function () { $('detail').hidden = true; history.replaceState(null, '', '#'); };
     var rb = $('refitBtn');
     if (rb) rb.onclick = function () {
-      var noAge = refit * r.token_odds;
-      $('refitOut').textContent = 'Without age: fitted ' + fmt(refit) + ' → implied ' + fmt(noAge) + ' (vs ' + fmt(r.implied_value_usd) + ' with age). The age term ' + (noAge < r.implied_value_usd ? 'lifts' : 'lowers') + ' this row by ' + Math.round(Math.abs(noAge / r.implied_value_usd - 1) * 100) + '%.';
+      var withAge = refit * r.token_odds;
+      $('refitOut').textContent = 'With age: fitted ' + fmt(refit) + ' → implied ' + fmt(withAge) + ' (vs ' + fmt(r.implied_value_usd) + ' without age). The age term ' + (withAge > r.implied_value_usd ? 'lifts' : 'lowers') + ' this row by ' + Math.round(Math.abs(withAge / r.implied_value_usd - 1) * 100) + '%.';
     };
     $('detail').scrollIntoView();
   }
 
   // --- evidence ---------------------------------------------------------------
   (function () {
-    var vt = '<h3>Value model: log(market cap) on the priced comps</h3><p class="dim">Comps are the token-bearing peers whose market cap sits within [0.02, 2] of their TVL — 94 of 128 priced peers. The other 34 are dust caps (ratio under 0.02) or detached valuations (over 2). Every term below was kept only if it won both tests: leave-one-out and a walk-forward split at the median listing date (' + E.valueCut + ').</p><table><thead><tr><th>Terms</th><th>R²</th><th>LOO miss</th><th>Walk-fwd miss</th><th>Verdict</th><th>Why</th></tr></thead><tbody>' +
+    var vt = '<h3>Value model: log(market cap) on the priced comps</h3><p class="dim">Comps are every priced peer — all ' + E.peerCount + ' protocols with a market cap over $0. No peer is cut: an earlier cut (ratio in [0.02, 2]) steepened the slope and inflated the big protocols\' fitted values, while the uncut fit wins both held-out tests on the full priced set. Every term below was kept only if it won both tests: leave-one-out and a walk-forward split at the median listing date (' + E.valueCut + ').</p><table><thead><tr><th>Terms</th><th>R²</th><th>LOO miss</th><th>Walk-fwd miss</th><th>Verdict</th><th>Why</th></tr></thead><tbody>' +
       E.valueTable.map(function (r) { return '<tr><td>' + r.spec + '</td><td>' + r.r2.toFixed(4) + '</td><td>×' + r.loo.toFixed(2) + '</td><td>×' + r.wf.toFixed(2) + '</td><td class="' + (r.kept ? 'kept' : 'notkept') + '">' + (r.kept ? 'KEPT' : 'tested') + '</td><td>' + r.why + '</td></tr>'; }).join('') + '</tbody></table>';
     var ot = '<h3>Token odds · Brier score (share called right)</h3><p class="dim">Outcome "records a token" (symbol non-null) on all 758 protocols; base rate ' + (E.odds.base * 100).toFixed(1) + '%. Walk-forward split at the median listing date (' + E.odds.wfCut + '): train on the earlier-listed half, test on the later half.</p><table><thead><tr><th>Model</th><th>Peers</th><th>Brier</th><th>Constant</th><th>Walk-fwd Brier</th><th>Walk-fwd acc</th><th>Top-row odds</th></tr></thead><tbody>' +
       '<tr><td><b>Kept: log TVL + age + growth + chains</b></td><td>758</td><td>' + E.odds.brier.toFixed(4) + '</td><td>' + E.odds.constantBrier.toFixed(4) + '</td><td>' + E.odds.wfBrier.toFixed(4) + '</td><td>' + E.odds.wfAcc.toFixed(3) + '</td><td>—</td></tr>' +
